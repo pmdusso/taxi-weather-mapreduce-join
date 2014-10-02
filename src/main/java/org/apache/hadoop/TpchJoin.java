@@ -4,7 +4,10 @@ package org.apache.hadoop;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.Path;
-import org.apache.hadoop.io.*;
+import org.apache.hadoop.io.LongWritable;
+import org.apache.hadoop.io.Text;
+import org.apache.hadoop.io.WritableComparator;
+import org.apache.hadoop.io.WritableUtils;
 import org.apache.hadoop.mapreduce.Job;
 import org.apache.hadoop.mapreduce.Mapper;
 import org.apache.hadoop.mapreduce.Reducer;
@@ -23,8 +26,10 @@ import java.util.concurrent.TimeUnit;
 
 public class TpchJoin {
 
-    public static final String TAXI_TAG = "LI~";
-    public static final String WEATHER_TAG = "O~";
+    public static final String TAXI = "T";
+    public static final String WEATHER = "W";
+    public static final String TAXI_TAG = TAXI + "~";
+    public static final String WEATHER_TAG = WEATHER + "~";
 
     /**
      * A WritableComparator optimized for Text keys.
@@ -43,38 +48,29 @@ public class TpchJoin {
     }
 
     public static class JoinReducer extends Reducer<LongWritable, Text, Text, Text> {
-        private final IntWritable result = new IntWritable();
 
-        String pickupDatetime, record, rainVolume;
+        String record, rainVolume;
 
         @Override
         public void reduce(LongWritable key, Iterable<Text> values, Context context) throws IOException, InterruptedException {
 
             for (final Text val : values) {
-                String currValue = val.toString();
-                String valueSplitted[] = currValue.split("~");
-        /*
-         * identifying the record source that corresponds to a cell number and parses the values accordingly
-		 */
-                if (valueSplitted[0].equals("LI")) {
-                    pickupDatetime = valueSplitted[1].trim();
+                String valueSplitted[] = val.toString().split("~");
+
+                if (valueSplitted[0].equals(TAXI)) {
                     record = valueSplitted[1].trim();
-                } else if (valueSplitted[0].equals("O")) {
-                    // getting the delivery code and using the same to obtain the Message
+                } else if (valueSplitted[0].equals(WEATHER)) {
                     rainVolume = valueSplitted[1].trim();
                 }
             }
 
             // pump final output to file
-            if (pickupDatetime != null && rainVolume != null) {
-                context.write(new Text(key.toString()), new Text(pickupDatetime + ";" + rainVolume));
+            if (record != null && rainVolume != null) {
+                context.write(new Text(record.toString()), new Text("," + Double.valueOf(rainVolume) * 10));
             }
-//            else if (pickupDatetime == null)
-//                context.write(key, new Text("null;" + rainVolume));
-//            else if (rainVolume == null)
-//                context.write(key, new Text(pickupDatetime + ";null"));
-
-
+            /*else if (rainVolume == null) {
+                context.write(new Text(record.toString()), new Text("," + 0.0));
+            }*/
         }
 
         public static class TaxiMapper extends Mapper<Object, Text, LongWritable, Text> {
@@ -107,15 +103,18 @@ public class TpchJoin {
 
             @Override
             public void map(Object key, Text value, Context context) throws IOException, InterruptedException {
-                String[] split = value.toString().split(",");
+
+                String[] split = value.toString().replace("\"", "").split(",");
                 try {
                     rainDate.set(df.parse(split[0]).getTime());
                 } catch (ParseException pe) {
                     System.out.println(pe.getMessage());
                 }
-                if (split.length > 1)
+                if (split.length == 2) {
                     rainVolume.set(fileTag + split[1]);
-                else
+                } else if (split.length == 3) {
+                    rainVolume.set(fileTag + split[1] + "." + split[2]);
+                } else
                     rainVolume.set(fileTag + "0");
 
                 context.write(rainDate, rainVolume);
