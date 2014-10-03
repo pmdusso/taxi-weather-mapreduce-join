@@ -4,7 +4,6 @@ package org.apache.hadoop;
 import com.google.common.collect.Lists;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.Path;
-import org.apache.hadoop.io.LongWritable;
 import org.apache.hadoop.io.Text;
 import org.apache.hadoop.io.WritableComparator;
 import org.apache.hadoop.io.WritableUtils;
@@ -23,11 +22,10 @@ import java.text.ParseException;
 import java.text.SimpleDateFormat;
 import java.util.Calendar;
 import java.util.List;
-import java.util.TimeZone;
 import java.util.concurrent.TimeUnit;
 
 
-public class TpchJoin {
+public class JoinWithTextKeys {
 
     public static final String TAXI = "T";
     public static final String WEATHER = "W";
@@ -50,12 +48,12 @@ public class TpchJoin {
         }
     }
 
-    public static class JoinReducer extends Reducer<LongWritable, Text, Text, Text> {
+    public static class JoinReducer extends Reducer<Text, Text, Text, Text> {
 
         String record, rainVolume;
 
         @Override
-        public void reduce(LongWritable key, Iterable<Text> values, Context context) throws IOException, InterruptedException {
+        public void reduce(Text key, Iterable<Text> values, Context context) throws IOException, InterruptedException {
 
 
             List<Text> elements = Lists.newArrayList(values);
@@ -83,24 +81,33 @@ public class TpchJoin {
         }
     }
 
-    public static class TaxiMapper extends Mapper<Object, Text, LongWritable, Text> {
+    public static class TaxiMapper extends Mapper<Object, Text, Text, Text> {
 
         private String fileTag = TAXI_TAG;
 
-        private final LongWritable pickupDatetime = new LongWritable();
+        private final Text pickupDatetime = new Text();
         private final Text record = new Text();
         DateFormat df = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss"); //2013-01-12 01:40:03
-
         Calendar cal = Calendar.getInstance();
 
         @Override
         public void map(Object key, Text value, Context context) throws IOException, InterruptedException {
-            df.setTimeZone(TimeZone.getTimeZone("GMT"));
             String[] split = value.toString().split(",");
             try {
                 cal.setTime(df.parse(split[TaxiFields.PICKUP_DATETIME]));
-                cal.set(Calendar.SECOND, 0);
-                pickupDatetime.set(cal.getTime().getTime());
+                System.out.println(split[TaxiFields.PICKUP_DATETIME]);
+                pickupDatetime.set(String.format("%d%d%d%d%d",
+                        cal.get(Calendar.YEAR),
+                        cal.get(Calendar.MONTH),
+                        cal.get(Calendar.DAY_OF_MONTH),
+                        cal.get(Calendar.HOUR_OF_DAY),
+                        cal.get(Calendar.MINUTE)));
+                System.out.println(String.format("%d - %d - %d - %d - %d",
+                        cal.get(Calendar.YEAR),
+                        cal.get(Calendar.MONTH),
+                        cal.get(Calendar.DAY_OF_MONTH),
+                        cal.get(Calendar.HOUR_OF_DAY),
+                        cal.get(Calendar.MINUTE)));
 
             } catch (ParseException pe) {
                 System.out.println(pe.getMessage());
@@ -110,13 +117,13 @@ public class TpchJoin {
         }
     }
 
-    public static class WeatherMapper extends Mapper<Object, Text, LongWritable, Text> {
+    public static class WeatherMapper extends Mapper<Object, Text, Text, Text> {
 
         private String fileTag = WEATHER_TAG;
-        private final LongWritable rainDate = new LongWritable();
+        private final Text rainDate = new Text();
         private final Text rainVolume = new Text();
         DateFormat df = new SimpleDateFormat("dd-MM-yyyy HH:mm zzz"); //1-6-2013 5:51 GMT,
-        Calendar cal = Calendar.getInstance(TimeZone.getTimeZone("GMT"));
+        Calendar cal = Calendar.getInstance();
 
 
         @Override
@@ -125,9 +132,21 @@ public class TpchJoin {
             String[] split = value.toString().replace("\"", "").split(",");
             try {
                 cal.setTime(df.parse(split[0]));
-                cal.set(Calendar.SECOND, 0);
-                cal.setTimeZone(TimeZone.getDefault());
-                rainDate.set(cal.getTime().getTime());
+                System.out.println(split[0]);
+                System.out.println(cal.getTime());
+                System.out.println(String.format("%d - %d - %d - %d - %d",
+                        cal.get(Calendar.YEAR),
+                        cal.get(Calendar.MONTH),
+                        cal.get(Calendar.DAY_OF_MONTH),
+                        cal.get(Calendar.HOUR_OF_DAY),
+                        cal.get(Calendar.MINUTE)));
+                rainDate.set(String.format("%d%d%d%d%d",
+                        cal.get(Calendar.YEAR),
+                        cal.get(Calendar.MONTH),
+                        cal.get(Calendar.DAY_OF_MONTH),
+                        cal.get(Calendar.HOUR_OF_DAY),
+                        cal.get(Calendar.MINUTE)));
+
 
             } catch (ParseException pe) {
                 System.out.println(pe.getMessage());
@@ -154,9 +173,9 @@ public class TpchJoin {
         }
 
         final Job job = new Job(conf, "Taxi Join");
-        job.setJarByClass(TpchJoin.class);
+        job.setJarByClass(JoinWithTextKeys.class);
 
-        job.setOutputKeyClass(LongWritable.class);
+        job.setOutputKeyClass(Text.class);
         job.setOutputValueClass(Text.class);
 
         job.setReducerClass(JoinReducer.class);
